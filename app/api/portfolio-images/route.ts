@@ -8,7 +8,7 @@ const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif"]);
 
 export async function GET() {
   try {
-    const dir = path.join(process.cwd(), "public", "profile");
+    const dir = path.join(process.cwd(), "public", "portfolio");
     if (!fs.existsSync(dir)) return NextResponse.json({ images: [] });
 
     const files = fs
@@ -16,7 +16,7 @@ export async function GET() {
       .filter((f) => ALLOWED_EXT.has(path.extname(f).toLowerCase()))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-    const images = files.map((f) => `/profile/${f}`);
+    const images = files.map((f) => `/portfolio/${f}`);
     return NextResponse.json({ images });
   } catch {
     return NextResponse.json({ images: [] });

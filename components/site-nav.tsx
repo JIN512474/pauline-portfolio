@@ -2,144 +2,163 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLang } from "@/app/providers";
 
-const LINKS = [
-  { href: "/", labelKR: "홈", labelEN: "Home" },
-  { href: "/profile", labelKR: "프로필", labelEN: "Profile" },
-  { href: "/portfolio", labelKR: "포트폴리오", labelEN: "Portfolio" },
-  { href: "/contact", labelKR: "문의", labelEN: "Contact" },
-];
+function MenuIcon({ open }: { open: boolean }) {
+  return (
+    <div className="relative w-6 h-6">
+      <span
+        className={
+          "absolute left-0 top-1.5 h-[1.5px] w-6 bg-white/80 transition " +
+          (open ? "translate-y-[6px] rotate-45" : "")
+        }
+      />
+      <span
+        className={
+          "absolute left-0 top-1/2 -translate-y-1/2 h-[1.5px] w-6 bg-white/80 transition " +
+          (open ? "opacity-0" : "opacity-100")
+        }
+      />
+      <span
+        className={
+          "absolute left-0 bottom-1.5 h-[1.5px] w-6 bg-white/80 transition " +
+          (open ? "-translate-y-[6px] -rotate-45" : "")
+        }
+      />
+    </div>
+  );
+}
 
 export default function SiteNav() {
   const pathname = usePathname();
-  const { lang, toggleLang } = useLang();
+  const { lang, setLang } = useLang();
 
-  const isHome = pathname === "/";
+  const [open, setOpen] = useState(false);
 
-  // 홈에서만 "히어로 구간 노출"을 사용
-  const [inHero, setInHero] = useState(true);
+  // 라우트 이동 시 모바일 메뉴 자동 닫기
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
 
-  // 스크롤 시 살짝 페이드: 1.0 ~ 0.9
-  const [fade, setFade] = useState(1);
+  // 모바일 메뉴 열렸을 때 스크롤 잠금
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
-  const ioRef = useRef<IntersectionObserver | null>(null);
-
-  const active = useMemo(
-    () => (href: string) => {
-      if (href === "/") return pathname === "/";
-      return pathname.startsWith(href);
-    },
-    [pathname]
+  const links = useMemo(
+    () => [
+      { href: "/", labelKR: "HOME", labelEN: "HOME" },
+      { href: "/profile", labelKR: "PROFILE", labelEN: "PROFILE" },
+      { href: "/portfolio", labelKR: "PORTFOLIO", labelEN: "PORTFOLIO" },
+      { href: "/contact", labelKR: "CONTACT", labelEN: "CONTACT" },
+    ],
+    []
   );
 
-  // (1) 스크롤 페이드 (모든 페이지 공통)
-  useEffect(() => {
-    const onScroll = () => {
-      const y = window.scrollY || 0;
-      const t = Math.min(y / 260, 1);
-      setFade(1 - 0.1 * t);
-    };
-
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  // (2) 히어로 구간에서만 보이기: 홈에서만 적용 + 라우트 이동 대응
-  useEffect(() => {
-    // 다른 페이지에서는 항상 표시
-    if (!isHome) {
-      setInHero(true);
-      if (ioRef.current) {
-        ioRef.current.disconnect();
-        ioRef.current = null;
-      }
-      return;
-    }
-
-    // 홈인 경우: hero 관찰
-    const hero = document.getElementById("hero");
-
-    // hero가 없으면 안전하게 표시
-    if (!hero) {
-      setInHero(true);
-      if (ioRef.current) {
-        ioRef.current.disconnect();
-        ioRef.current = null;
-      }
-      return;
-    }
-
-    // 기존 observer 정리
-    if (ioRef.current) {
-      ioRef.current.disconnect();
-      ioRef.current = null;
-    }
-
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        setInHero(entry.isIntersecting);
-      },
-      { threshold: 0.15 }
-    );
-
-    io.observe(hero);
-    ioRef.current = io;
-
-    return () => {
-      io.disconnect();
-      ioRef.current = null;
-    };
-  }, [isHome, pathname]);
-
-  // 홈에서는 히어로 밖이면 숨김, 다른 페이지는 항상 표시
-  const shouldShow = !isHome || inHero;
-
-  if (!shouldShow) return null;
+  const brand = "Pauline Guillet";
 
   return (
-    <header className="fixed top-0 inset-x-0 z-50 pointer-events-none">
-      <div className="px-5 md:px-10">
-        <div
-          className="max-w-6xl mx-auto h-16 flex items-center justify-between pointer-events-auto"
-          style={{ opacity: fade }}
-        >
-          <Link
-            href="/"
-            className="text-sm tracking-wide2 text-white/90 hover:text-white transition"
-          >
-            Pauline Guillet
-          </Link>
+    <>
+      <header className="fixed top-0 left-0 right-0 z-50">
+        <div className="px-5 md:px-10 pt-5">
+          <div className="flex items-center justify-between">
+            {/* Brand */}
+            <Link href="/" className="text-sm tracking-wide2 text-white/90">
+              {brand}
+            </Link>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm text-white/70">
-            {LINKS.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={
-                  "hover:text-white transition " +
-                  (active(l.href) ? "text-white" : "")
-                }
+            {/* Desktop nav */}
+            <nav className="hidden md:flex items-center gap-6 text-xs tracking-wide2 text-white/65">
+              {links.map((l) => {
+                const active = pathname === l.href;
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={
+                      "transition hover:text-white " +
+                      (active ? "text-white" : "text-white/65")
+                    }
+                  >
+                    {lang === "KR" ? l.labelKR : l.labelEN}
+                  </Link>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setLang(lang === "KR" ? "EN" : "KR")}
+                className="ml-2 rounded-full border border-white/20 px-3 py-1 text-[11px] text-white/70 hover:text-white hover:border-white/35 transition"
+                aria-label="Toggle language"
               >
-                {lang === "KR" ? l.labelKR : l.labelEN}
-              </Link>
-            ))}
-          </nav>
+                {lang === "KR" ? "KR" : "EN"}
+              </button>
+            </nav>
 
-          <button
-            type="button"
-            onClick={toggleLang}
-            className="text-xs tracking-wide2 text-white/70 hover:text-white transition flex items-center gap-2"
-            aria-label="Toggle language"
-          >
-            <span className={lang === "KR" ? "text-white" : "text-white/40"}>KR</span>
-            <span className="text-white/30">/</span>
-            <span className={lang === "EN" ? "text-white" : "text-white/40"}>EN</span>
-          </button>
+            {/* Mobile controls */}
+            <div className="md:hidden flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setLang(lang === "KR" ? "EN" : "KR")}
+                className="rounded-full border border-white/20 px-3 py-1 text-[11px] text-white/70 hover:text-white hover:border-white/35 transition"
+                aria-label="Toggle language"
+              >
+                {lang === "KR" ? "KR" : "EN"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="rounded-full border border-white/20 p-2 hover:border-white/35 transition"
+                aria-label="Open menu"
+              >
+                <MenuIcon open={open} />
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Mobile overlay menu */}
+      {open && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="absolute right-0 top-0 h-full w-[82vw] max-w-[360px] bg-black border-l border-white/10 p-6">
+            <div className="mt-16 space-y-6">
+              {links.map((l) => {
+                const active = pathname === l.href;
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={
+                      "block text-sm tracking-wide2 transition " +
+                      (active ? "text-white" : "text-white/70 hover:text-white")
+                    }
+                  >
+                    {lang === "KR" ? l.labelKR : l.labelEN}
+                  </Link>
+                );
+              })}
+            </div>
+
+            <div className="absolute bottom-6 left-6 right-6 text-[11px] text-white/40">
+              © 2026 PAULINE
+              <div className="mt-1">By KWON JINCHAN</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

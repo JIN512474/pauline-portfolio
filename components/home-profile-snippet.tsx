@@ -25,7 +25,6 @@ export default function HomeProfileSnippet() {
         const list = Array.isArray(data.images)
           ? data.images.filter((x) => typeof x === "string" && x.trim().length > 0)
           : [];
-
         if (!alive) return;
         setImages(list);
         setActive(0);
@@ -108,12 +107,11 @@ export default function HomeProfileSnippet() {
   return (
     <section className="py-16 md:py-20 border-b border-white/10">
       <div className="grid lg:grid-cols-12 gap-10 items-start">
-        {/* Label */}
         <div className="lg:col-span-2">
           <div className="text-xs tracking-wide2 text-white/60">PROFILE</div>
         </div>
 
-        {/* (Mobile) Image card */}
+        {/* Mobile: image first */}
         <div className="lg:hidden">
           <ProfilePreviewCard
             lang={lang}
@@ -126,10 +124,8 @@ export default function HomeProfileSnippet() {
           />
         </div>
 
-        {/* Text */}
         <div className="lg:col-span-6">
           <h2 className="text-2xl md:text-4xl leading-tight max-w-3xl">{title}</h2>
-
           <p className="mt-5 text-white/70 leading-relaxed max-w-2xl">{desc}</p>
 
           <div className="mt-8 flex gap-3">
@@ -149,7 +145,7 @@ export default function HomeProfileSnippet() {
           </div>
         </div>
 
-        {/* (Desktop) Image card */}
+        {/* Desktop: image right */}
         <div className="hidden lg:block lg:col-span-4">
           <ProfilePreviewCard
             lang={lang}
@@ -204,11 +200,18 @@ function ProfilePreviewCard({
         {images.length > 0 && (
           <div
             ref={trackRef}
-            className="homeProfileTrack relative flex overflow-x-auto scroll-smooth snap-x snap-mandatory"
-            style={{ WebkitOverflowScrolling: "touch" }}
+            className="homeProfileTrack relative flex overflow-x-scroll scroll-smooth snap-x snap-mandatory"
+            style={{
+              WebkitOverflowScrolling: "touch",
+              touchAction: "pan-x",
+            }}
           >
             {images.map((src, i) => (
-              <div key={src} data-slide={i} className="relative w-full shrink-0 snap-start">
+              <div
+                key={src}
+                data-slide={i}
+                className="relative min-w-full shrink-0 snap-start"
+              >
                 <div className="relative aspect-[4/5]">
                   <Image
                     src={src}
@@ -263,13 +266,6 @@ function ProfilePreviewCard({
             </div>
           </>
         )}
-      </div>
-
-      <div className="p-4">
-        <div className="text-xs tracking-wide2 text-white/60">PROFILE FRAMES</div>
-        <div className="mt-2 text-sm text-white/70">
-          {lang === "KR" ? "스와이프해서 확인" : "Swipe to browse"}
-        </div>
       </div>
 
       <style jsx>{`
