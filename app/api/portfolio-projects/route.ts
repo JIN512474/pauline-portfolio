@@ -1,81 +1,93 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
+
+export const runtime = "nodejs";
 
 type Project = {
-  id: string;        // folder name
-  cover: string;     // first image url
-  images: string[];  // all image urls
+  id: string;
+  title: string;
+  cover: string;
+  images: string[];
 };
 
-function isImageFile(name: string) {
-  const lower = name.toLowerCase();
+function isJunkFile(name: string) {
+  // macOS resource fork + DS_Store + hidden files
   return (
-    lower.endsWith(".jpg") ||
-    lower.endsWith(".jpeg") ||
-    lower.endsWith(".png") ||
-    lower.endsWith(".webp") ||
-    lower.endsWith(".gif")
+    name === ".DS_Store" ||
+    name.startsWith("._") ||
+    name.startsWith(".") ||
+    name.toLowerCase() === "thumbs.db"
   );
 }
 
-function isHiddenOrMacJunk(name: string) {
-  return name.startsWith(".") || name.startsWith("._") || name === ".ds_store";
+function isImageFile(name: string) {
+  const n = name.toLowerCase();
+  return n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".avif");
 }
 
-function naturalSort(a: string, b: string) {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+function numericFolderSortDesc(a: string, b: string) {
+  // folder-12, folder 12, 12 등 숫자가 있으면 숫자로 내림차순
+  const na = Number((a.match(/\d+/g) || ["-1"]).pop());
+  const nb = Number((b.match(/\d+/g) || ["-1"]).pop());
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return nb - na;
+  return b.localeCompare(a, "en");
 }
 
-function folderSortDesc(a: string, b: string) {
-  // 숫자 폴더면 숫자 기준 내림차순, 아니면 문자열 내림차순
-  const na = Number(a.replace(/[^\d]/g, ""));
-  const nb = Number(b.replace(/[^\d]/g, ""));
-  const bothNumeric = Number.isFinite(na) && Number.isFinite(nb) && (/\d/.test(a) || /\d/.test(b));
-  if (bothNumeric) return nb - na;
-  return b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" });
+function numericFileSortAsc(a: string, b: string) {
+  const na = Number((a.match(/\d+/g) || ["-1"]).pop());
+  const nb = Number((b.match(/\d+/g) || ["-1"]).pop());
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+  return a.localeCompare(b, "en");
 }
 
 export async function GET() {
+  const portfolioRoot = path.join(process.cwd(), "public", "portfolio");
+
+  let folders: string[] = [];
   try {
-    const publicDir = path.join(process.cwd(), "public");
-    const baseDir = path.join(publicDir, "portfolio");
-
-    if (!fs.existsSync(baseDir)) {
-      return NextResponse.json({ projects: [] });
-    }
-
-    const folders = fs
-      .readdirSync(baseDir, { withFileTypes: true })
+    folders = fs
+      .readdirSync(portfolioRoot, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .filter((name) => !isHiddenOrMacJunk(name))
-      .sort(folderSortDesc);
-
-    const projects: Project[] = [];
-
-    for (const folder of folders) {
-      const folderPath = path.join(baseDir, folder);
-      const files = fs
-        .readdirSync(folderPath, { withFileTypes: true })
-        .filter((f) => f.isFile())
-        .map((f) => f.name)
-        .filter((name) => !isHiddenOrMacJunk(name))
-        .filter(isImageFile)
-        .sort(naturalSort);
-
-      if (files.length === 0) continue;
-
-      const images = files.map((f) => `/portfolio/${folder}/${f}`);
-      projects.push({
-        id: folder,
-        cover: images[0],
-        images,
-      });
-    }
-
-    return NextResponse.json({ projects });
-  } catch (e) {
-    return NextResponse.json({ projects: [], error: "failed_to_scan_portfolio" }, { status: 500 });
+      .filter((n) => !isJunkFile(n))
+      .sort(numericFolderSortDesc);
+  } catch {
+    const res = NextResponse.json({ projects: [] as Project[] }, { status: 200 });
+    res.headers.set("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+    return res;
   }
+
+  const projects: Project[] = folders
+    .map((folderName) => {
+      const abs = path.join(portfolioRoot, folderName);
+      let files: string[] = [];
+      try {
+        files = fs
+          .readdirSync(abs, { withFileTypes: true })
+          .filter((d) => d.isFile())
+          .map((d) => d.name)
+          .filter((n) => !isJunkFile(n))
+          .filter(isImageFile)
+          .sort(numericFileSortAsc);
+      } catch {
+        files = [];
+      }
+
+      const images = files.map((f) => `/portfolio/${folderName}/${f}`);
+      const cover = images[0] || "";
+
+      return {
+        id: folderName,
+        title: folderName,
+        cover,
+        images,
+      };
+    })
+    .filter((p) => p.images.length > 0);
+
+  const res = NextResponse.json({ projects }, { status: 200 });
+  // Vercel Edge/Server cache
+  res.headers.set("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+  return res;
 }

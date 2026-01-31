@@ -1,97 +1,120 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 
 type Props = {
   open: boolean;
+  title?: string;
   images: string[];
   startIndex?: number;
   onClose: () => void;
 };
 
-export default function PortfolioLightbox({ open, images, startIndex = 0, onClose }: Props) {
-  const safeImages = useMemo(() => images ?? [], [images]);
-  const [active, setActive] = useState(Math.max(0, Math.min(startIndex, safeImages.length - 1)));
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
 
-  // swipe
-  const startXRef = useRef<number | null>(null);
-  const draggingRef = useRef(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setActive(Math.max(0, Math.min(startIndex, safeImages.length - 1)));
-  }, [open, startIndex, safeImages.length]);
+export default function PortfolioLightbox({ open, title, images, startIndex = 0, onClose }: Props) {
+  const [index, setIndex] = useState(0);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const lockScrollY = useRef<number>(0);
 
   useEffect(() => {
     if (!open) return;
+    setIndex(clamp(startIndex, 0, Math.max(0, images.length - 1)));
+  }, [open, startIndex, images.length]);
 
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") setActive((v) => Math.max(0, v - 1));
-      if (e.key === "ArrowRight") setActive((v) => Math.min(safeImages.length - 1, v + 1));
-    };
-
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+  // body scroll lock (안정)
+  useEffect(() => {
+    if (!open) return;
+    lockScrollY.current = window.scrollY;
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${lockScrollY.current}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.width = "100%";
 
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      const top = document.body.style.top;
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.style.width = "";
+      const y = top ? Math.abs(parseInt(top, 10)) : 0;
+      window.scrollTo(0, y);
     };
-  }, [open, onClose, safeImages.length]);
+  }, [open]);
+
+  // ESC 닫기
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") prev();
+      if (e.key === "ArrowRight") next();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, index, images.length]);
+
+  // ±1 프리로드 (현재/다음/이전만)
+  useEffect(() => {
+    if (!open) return;
+    const preload = (src?: string) => {
+      if (!src) return;
+      const img = new window.Image();
+      img.decoding = "async";
+      img.loading = "eager";
+      img.src = src;
+    };
+    preload(images[index - 1]);
+    preload(images[index + 1]);
+  }, [open, index, images]);
+
+  const hasPrev = index > 0;
+  const hasNext = index < images.length - 1;
+
+  const prev = () => setIndex((i) => clamp(i - 1, 0, images.length - 1));
+  const next = () => setIndex((i) => clamp(i + 1, 0, images.length - 1));
+
+  // 3장만 렌더: index-1, index, index+1
+  const windowed = useMemo(() => {
+    if (!open) return [];
+    const list: { src: string; i: number }[] = [];
+    for (const i of [index - 1, index, index + 1]) {
+      if (i >= 0 && i < images.length) list.push({ src: images[i], i });
+    }
+    return list;
+  }, [open, index, images]);
 
   if (!open) return null;
-  if (safeImages.length === 0) return null;
-
-  const canPrev = active > 0;
-  const canNext = active < safeImages.length - 1;
-
-  const goPrev = () => setActive((v) => Math.max(0, v - 1));
-  const goNext = () => setActive((v) => Math.min(safeImages.length - 1, v + 1));
 
   const swallow = (e: React.SyntheticEvent) => {
     e.preventDefault();
     e.stopPropagation();
   };
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    draggingRef.current = true;
-    startXRef.current = e.clientX;
-  };
-
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (!draggingRef.current) return;
-    draggingRef.current = false;
-
-    const startX = startXRef.current;
-    startXRef.current = null;
-
-    if (startX == null) return;
-    const dx = e.clientX - startX;
-
-    // threshold
-    if (Math.abs(dx) < 40) return;
-    if (dx > 0 && canPrev) goPrev();
-    if (dx < 0 && canNext) goNext();
-  };
-
   return (
     <div
-      className="fixed inset-0 z-[999] bg-black/90 backdrop-blur-[2px] flex items-center justify-center"
-      onClick={onClose}
-      role="dialog"
+      ref={overlayRef}
+      className="fixed inset-0 z-[999] bg-black/90 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        // 바깥 클릭 닫기
+        if (e.target === overlayRef.current) onClose();
+      }}
+      onTouchStart={(e) => {
+        if (e.target === overlayRef.current) onClose();
+      }}
       aria-modal="true"
+      role="dialog"
     >
-      <div
-        className="relative w-full h-full max-w-6xl max-h-[92vh] mx-auto px-4 md:px-8 flex items-center justify-center"
-        onClick={swallow}
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
-        style={{ touchAction: "pan-y" }}
-      >
-        {/* Close */}
+      {/* Top Bar */}
+      <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 py-3">
+        <div className="text-white/70 text-sm tracking-wide">{title || ""}</div>
+
         <button
           type="button"
           onPointerDown={swallow}
@@ -99,87 +122,107 @@ export default function PortfolioLightbox({ open, images, startIndex = 0, onClos
             swallow(e);
             onClose();
           }}
-          className="absolute right-4 top-4 z-30 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-white/90 w-10 h-10 flex items-center justify-center"
+          className="rounded-full border border-white/20 bg-black/30 px-3 py-2 text-white/80 hover:text-white hover:border-white/30"
           aria-label="Close"
           style={{ touchAction: "manipulation" }}
         >
           ✕
         </button>
+      </div>
 
-        {/* Prev */}
-        <button
-          type="button"
-          onPointerDown={swallow}
-          onClick={(e) => {
-            swallow(e);
-            if (canPrev) goPrev();
-          }}
-          disabled={!canPrev}
-          aria-label="Previous image"
-          className={[
-            "absolute left-4 top-1/2 -translate-y-1/2 z-30 rounded-full",
-            "bg-black/45 border border-white/18 w-11 h-11 flex items-center justify-center",
-            "text-white/85 hover:text-white hover:border-white/30 transition pointer-events-auto",
-            !canPrev ? "opacity-30 cursor-not-allowed" : "opacity-100",
-          ].join(" ")}
-          style={{ touchAction: "manipulation" }}
-        >
-          ‹
-        </button>
+      {/* Main */}
+      <div className="absolute inset-0 flex items-center justify-center px-4 pt-14 pb-10">
+        <div className="relative w-full max-w-5xl">
+          {/* Prev button */}
+          <button
+            type="button"
+            disabled={!hasPrev}
+            onPointerDown={swallow}
+            onClick={(e) => {
+              swallow(e);
+              if (hasPrev) prev();
+            }}
+            aria-label="Previous image"
+            style={{ touchAction: "manipulation" }}
+            className={[
+              "absolute left-3 top-1/2 -translate-y-1/2 z-30 pointer-events-auto",
+              "rounded-full bg-black/45 border border-white/18",
+              "w-11 h-11 flex items-center justify-center",
+              "text-white/85 hover:text-white hover:border-white/30 transition",
+              hasPrev ? "opacity-100" : "opacity-30 cursor-not-allowed",
+            ].join(" ")}
+          >
+            ‹
+          </button>
 
-        {/* Next */}
-        <button
-          type="button"
-          onPointerDown={swallow}
-          onClick={(e) => {
-            swallow(e);
-            if (canNext) goNext();
-          }}
-          disabled={!canNext}
-          aria-label="Next image"
-          className={[
-            "absolute right-4 top-1/2 -translate-y-1/2 z-30 rounded-full",
-            "bg-black/45 border border-white/18 w-11 h-11 flex items-center justify-center",
-            "text-white/85 hover:text-white hover:border-white/30 transition pointer-events-auto",
-            !canNext ? "opacity-30 cursor-not-allowed" : "opacity-100",
-          ].join(" ")}
-          style={{ touchAction: "manipulation" }}
-        >
-          ›
-        </button>
+          {/* Next button */}
+          <button
+            type="button"
+            disabled={!hasNext}
+            onPointerDown={swallow}
+            onClick={(e) => {
+              swallow(e);
+              if (hasNext) next();
+            }}
+            aria-label="Next image"
+            style={{ touchAction: "manipulation" }}
+            className={[
+              "absolute right-3 top-1/2 -translate-y-1/2 z-30 pointer-events-auto",
+              "rounded-full bg-black/45 border border-white/18",
+              "w-11 h-11 flex items-center justify-center",
+              "text-white/85 hover:text-white hover:border-white/30 transition",
+              hasNext ? "opacity-100" : "opacity-30 cursor-not-allowed",
+            ].join(" ")}
+          >
+            ›
+          </button>
 
-        {/* Image */}
-        <div className="relative w-full h-full max-h-[88vh]">
-          <Image
-            src={safeImages[active]}
-            alt=""
-            fill
-            priority
-            sizes="(max-width: 768px) 100vw, 80vw"
-            className="object-contain select-none"
-            draggable={false}
-          />
-        </div>
-
-        {/* Dots */}
-        <div className="absolute bottom-6 left-0 right-0 z-30 flex items-center justify-center gap-2">
-          {safeImages.slice(0, 12).map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onPointerDown={swallow}
-              onClick={(e) => {
-                swallow(e);
-                setActive(i);
+          {/* Image stage */}
+          <div className="relative mx-auto aspect-[4/5] max-h-[78vh] w-full overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+            {/* 3장만 렌더 - translate로 전환 */}
+            <div
+              className="absolute inset-0 flex h-full w-full"
+              style={{
+                transform: `translateX(${windowed.length ? -(windowed.findIndex((x) => x.i === index) * 100) : 0}%)`,
+                transition: "transform 220ms ease",
               }}
-              className={[
-                "h-2 w-2 rounded-full border border-white/40",
-                i === active ? "bg-white/80" : "bg-white/10",
-              ].join(" ")}
-              aria-label={`Go to image ${i + 1}`}
-              style={{ touchAction: "manipulation" }}
-            />
-          ))}
+            >
+              {windowed.map(({ src, i }) => (
+                <div key={src} className="relative h-full w-full shrink-0">
+                  <Image
+                    src={src}
+                    alt=""
+                    fill
+                    className="object-contain"
+                    sizes="(max-width: 768px) 92vw, 70vw"
+                    quality={88}
+                    priority={i === index}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Dots */}
+          <div className="mt-4 flex items-center justify-center gap-2">
+            {images.slice(0, 12).map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onPointerDown={swallow}
+                onClick={(e) => {
+                  swallow(e);
+                  setIndex(i);
+                }}
+                className={[
+                  "h-2 w-2 rounded-full transition",
+                  i === index ? "bg-white/80" : "bg-white/25 hover:bg-white/40",
+                ].join(" ")}
+                aria-label={`Go to image ${i + 1}`}
+                style={{ touchAction: "manipulation" }}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
