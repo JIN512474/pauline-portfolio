@@ -5,6 +5,10 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLang } from "@/app/providers";
 
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
 export default function HomeProfileSnippet() {
   const { lang } = useLang();
 
@@ -23,7 +27,9 @@ export default function HomeProfileSnippet() {
         const res = await fetch("/api/profile-images", { cache: "no-store" });
         const data = (await res.json()) as { images?: string[] };
         const list = Array.isArray(data.images)
-          ? data.images.filter((x) => typeof x === "string" && x.trim().length > 0)
+          ? data.images
+              .filter((x) => typeof x === "string" && x.trim().length > 0)
+              .filter((x) => !x.includes("/._")) // 안전망
           : [];
         if (!alive) return;
         setImages(list);
@@ -46,18 +52,24 @@ export default function HomeProfileSnippet() {
 
   const hasCarousel = images.length > 1;
 
+  const clampIndex = (idx: number) => {
+    if (images.length === 0) return 0;
+    return Math.max(0, Math.min(idx, images.length - 1));
+  };
+
   const scrollToIndex = (idx: number) => {
     const track = trackRef.current;
-    if (!track) return;
-    if (images.length === 0) return;
+    if (!track || images.length === 0) return;
 
-    const clamped = Math.max(0, Math.min(idx, images.length - 1));
+    const clamped = clampIndex(idx);
     const slide = track.querySelector<HTMLDivElement>(`[data-slide="${clamped}"]`);
     if (!slide) return;
 
     slide.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+    setActive(clamped);
   };
 
+  // ✅ active 자동 추적 (모바일에서도 안정적으로 동작)
   useEffect(() => {
     const track = trackRef.current;
     if (!track) return;
@@ -67,23 +79,23 @@ export default function HomeProfileSnippet() {
       const slides = Array.from(track.querySelectorAll<HTMLDivElement>("[data-slide]"));
       if (slides.length === 0) return;
 
-      const trackRect = track.getBoundingClientRect();
-      const trackCenter = trackRect.left + trackRect.width * 0.5;
+      const rect = track.getBoundingClientRect();
+      const center = rect.left + rect.width * 0.5;
 
-      let bestIdx = 0;
+      let best = 0;
       let bestDist = Number.POSITIVE_INFINITY;
 
       for (const s of slides) {
         const r = s.getBoundingClientRect();
-        const center = r.left + r.width * 0.5;
-        const dist = Math.abs(center - trackCenter);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIdx = Number(s.dataset.slide || 0);
+        const c = r.left + r.width * 0.5;
+        const d = Math.abs(c - center);
+        if (d < bestDist) {
+          bestDist = d;
+          best = Number(s.dataset.slide || 0);
         }
       }
 
-      setActive(bestIdx);
+      setActive(best);
     };
 
     onScroll();
@@ -91,7 +103,11 @@ export default function HomeProfileSnippet() {
     return () => track.removeEventListener("scroll", onScroll);
   }, [images.length]);
 
-  // ✅ 1안 멘트 (KR/EN 자동 전환)
+  const swallow = (e: React.PointerEvent | React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   const title = useMemo(() => {
     return lang === "KR"
       ? "브랜드와 사람 사이, 감정이 남는 비주얼."
@@ -104,178 +120,134 @@ export default function HomeProfileSnippet() {
       : "Capturing movement, expression, and the density of a moment.";
   }, [lang]);
 
+  const arrowBase = cx(
+    "absolute top-1/2 -translate-y-1/2 z-30 pointer-events-auto",
+    "rounded-full bg-black/45 border border-white/18",
+    "w-11 h-11 flex items-center justify-center",
+    "text-white/85 hover:text-white hover:border-white/30 transition"
+  );
+
   return (
-    <section className="py-16 md:py-20 border-b border-white/10">
+    <section className="py-20 border-b border-white/10">
       <div className="grid lg:grid-cols-12 gap-10 items-start">
-        <div className="lg:col-span-2">
-          <div className="text-xs tracking-wide2 text-white/60">PROFILE</div>
-        </div>
-
-        {/* Mobile: image first */}
-        <div className="lg:hidden">
-          <ProfilePreviewCard
-            lang={lang}
-            images={images}
-            loading={loading}
-            active={active}
-            hasCarousel={hasCarousel}
-            trackRef={trackRef}
-            scrollToIndex={scrollToIndex}
-          />
-        </div>
-
         <div className="lg:col-span-6">
-          <h2 className="text-2xl md:text-4xl leading-tight max-w-3xl">{title}</h2>
-          <p className="mt-5 text-white/70 leading-relaxed max-w-2xl">{desc}</p>
+          <h2 className="text-3xl md:text-4xl leading-tight">{title}</h2>
+          <p className="mt-5 text-white/70">{desc}</p>
 
           <div className="mt-8 flex gap-3">
             <Link
               href="/profile"
-              className="rounded-full px-6 py-3 text-sm bg-white text-black hover:bg-white/90 transition"
+              className="rounded-full px-6 py-3 bg-white text-black text-sm hover:bg-white/90 transition"
             >
               {lang === "KR" ? "프로필 보기" : "View Profile"}
             </Link>
-
             <Link
               href="/contact"
-              className="rounded-full px-6 py-3 text-sm border border-white/30 hover:border-white/60 transition"
+              className="rounded-full px-6 py-3 border border-white/30 text-sm hover:border-white/60 transition"
             >
-              {lang === "KR" ? "문의" : "Inquiries"}
+              {lang === "KR" ? "문의" : "Contact"}
             </Link>
           </div>
         </div>
 
-        {/* Desktop: image right */}
-        <div className="hidden lg:block lg:col-span-4">
-          <ProfilePreviewCard
-            lang={lang}
-            images={images}
-            loading={loading}
-            active={active}
-            hasCarousel={hasCarousel}
-            trackRef={trackRef}
-            scrollToIndex={scrollToIndex}
-          />
+        <div className="lg:col-span-6">
+          <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-white/5 shadow-soft">
+            {(loading || images.length === 0) && (
+              <div className="relative aspect-[4/5] bg-black/25" />
+            )}
+
+            {images.length > 0 && (
+              <div
+                ref={trackRef}
+                className="homeProfileTrack relative flex overflow-x-scroll snap-x snap-mandatory scroll-smooth"
+                style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-x" }}
+              >
+                {images.map((src, i) => (
+                  <div
+                    key={src}
+                    data-slide={i}
+                    className="min-w-full snap-start relative aspect-[4/5]"
+                  >
+                    <Image
+                      src={src}
+                      alt={`Home profile ${i + 1}`}
+                      fill
+                      className="object-cover"
+                      priority={i === 0}
+                      sizes="(max-width: 1024px) 100vw, 50vw"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ✅ 모바일 버튼 클릭 우선순위 + 음수 인덱스 방지 */}
+            {hasCarousel && (
+              <>
+                <button
+                  type="button"
+                  onPointerDown={swallow}
+                  onClick={(e) => {
+                    swallow(e);
+                    scrollToIndex(active - 1);
+                  }}
+                  className={cx(arrowBase, "left-3")}
+                  style={{ touchAction: "manipulation" }}
+                  aria-label="Previous image"
+                >
+                  ‹
+                </button>
+
+                <button
+                  type="button"
+                  onPointerDown={swallow}
+                  onClick={(e) => {
+                    swallow(e);
+                    scrollToIndex(active + 1);
+                  }}
+                  className={cx(arrowBase, "right-3")}
+                  style={{ touchAction: "manipulation" }}
+                  aria-label="Next image"
+                >
+                  ›
+                </button>
+
+                {/* dots (터치 이동도 같이 안정화) */}
+                <div className="absolute left-0 right-0 bottom-4 z-30 pointer-events-auto flex justify-center gap-2">
+                  {images.map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onPointerDown={swallow}
+                      onClick={(e) => {
+                        swallow(e);
+                        scrollToIndex(i);
+                      }}
+                      className={cx(
+                        "h-2.5 w-2.5 rounded-full border transition",
+                        i === active
+                          ? "bg-white/90 border-white/90"
+                          : "bg-white/10 border-white/30 hover:bg-white/25"
+                      )}
+                      style={{ touchAction: "manipulation" }}
+                      aria-label={`Go to image ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            <style jsx>{`
+              .homeProfileTrack {
+                scrollbar-width: none;
+              }
+              .homeProfileTrack::-webkit-scrollbar {
+                display: none;
+              }
+            `}</style>
+          </div>
         </div>
       </div>
     </section>
-  );
-}
-
-function ProfilePreviewCard({
-  lang,
-  images,
-  loading,
-  active,
-  hasCarousel,
-  trackRef,
-  scrollToIndex,
-}: {
-  lang: "KR" | "EN";
-  images: string[];
-  loading: boolean;
-  active: number;
-  hasCarousel: boolean;
-  trackRef: React.RefObject<HTMLDivElement | null>;
-  scrollToIndex: (idx: number) => void;
-}) {
-  return (
-    <div className="rounded-2xl overflow-hidden border border-white/10 bg-white/5 shadow-soft">
-      <div className="relative">
-        {(loading || images.length === 0) && (
-          <div className="relative aspect-[4/5] bg-black/25">
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-black/0" />
-            <div className="absolute left-5 bottom-5 text-sm text-white/70">
-              {loading
-                ? lang === "KR"
-                  ? "프로필 이미지 로딩 중..."
-                  : "Loading profile images..."
-                : lang === "KR"
-                ? "public/profile 폴더에 이미지를 넣어주세요."
-                : "Add images to public/profile/"}
-            </div>
-          </div>
-        )}
-
-        {images.length > 0 && (
-          <div
-            ref={trackRef}
-            className="homeProfileTrack relative flex overflow-x-scroll scroll-smooth snap-x snap-mandatory"
-            style={{
-              WebkitOverflowScrolling: "touch",
-              touchAction: "pan-x",
-            }}
-          >
-            {images.map((src, i) => (
-              <div
-                key={src}
-                data-slide={i}
-                className="relative min-w-full shrink-0 snap-start"
-              >
-                <div className="relative aspect-[4/5]">
-                  <Image
-                    src={src}
-                    alt={`Home profile ${i + 1}`}
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 1024px) 100vw, 33vw"
-                    priority={i === 0}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {hasCarousel && (
-          <>
-            <button
-              type="button"
-              onClick={() => scrollToIndex(active - 1)}
-              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/40 border border-white/15 px-3 py-2 text-white/80 hover:text-white hover:border-white/30 transition"
-              aria-label="Previous image"
-            >
-              ‹
-            </button>
-
-            <button
-              type="button"
-              onClick={() => scrollToIndex(active + 1)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/40 border border-white/15 px-3 py-2 text-white/80 hover:text-white hover:border-white/30 transition"
-              aria-label="Next image"
-            >
-              ›
-            </button>
-
-            <div className="absolute left-0 right-0 bottom-4 flex justify-center gap-2">
-              {images.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => scrollToIndex(i)}
-                  className={
-                    "h-2 w-2 rounded-full border transition " +
-                    (i === active
-                      ? "bg-white/90 border-white/90"
-                      : "bg-white/10 border-white/30 hover:bg-white/25")
-                  }
-                  aria-label={`Go to image ${i + 1}`}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      <style jsx>{`
-        .homeProfileTrack {
-          scrollbar-width: none;
-        }
-        .homeProfileTrack::-webkit-scrollbar {
-          display: none;
-        }
-      `}</style>
-    </div>
   );
 }
